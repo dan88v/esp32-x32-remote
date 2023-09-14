@@ -8,14 +8,14 @@ At the moment it only works using ethernet, I plan to add wifi support as well v
 Also comments and advices are always welcome!
 
 Components needed:
-1x ESP32
-1x Rotary Push Encoder
-1x LCD 1602
-1x Ethernet Shield ENC28J60
+* 1x ESP32
+* 1x Rotary Push Encoder
+* 1x LCD 1602
+* 1x Ethernet Shield ENC28J60
 
 At this stage IP addresses are hardcoded as following:
-Controller IP: 10.0.1.2
-Mixer IP: 10.0.1.1
+* Controller IP: 10.0.1.2
+* Mixer IP: 10.0.1.1
 
 So you have to set your mixer ip on 10.0.1.1
 
