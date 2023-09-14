@@ -19,5 +19,6 @@ At this stage IP addresses are hardcoded as following:
 
 So you have to set your mixer ip on 10.0.1.1
 
-The code still need A LOT of optimization, i wrote it as fast as possible in order to make it work.
+The code still needs A LOT of optimization, I wrote it as fast as possible in order to make it work.
+
 Please be kind!
