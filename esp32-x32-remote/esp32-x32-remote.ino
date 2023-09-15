@@ -39,6 +39,7 @@ enum state {
   MAIN_MENU,
   SUB_MENU,
   CHANNEL_SELECT_MENU,
+  IP_EDIT_MENU,
 };
 
 enum state actualState = HOME;
@@ -48,7 +49,7 @@ enum type {
   CALLBACK,
   ON_OFF,
   VALUE_EDIT,
-  IP_EDIT,
+  IP_EDITOR,
   CHANNEL_SELECTOR
 };
 
@@ -56,15 +57,10 @@ enum type {
 //Menu Struct
 struct MenuItem{
    char* name;      
-   enum type itemType;
-   int parent;            
-   int value1;            
-   int value2;            
-   int value3;            
-   int value4;            
-   int min;               
-   int max;               
-   const char* callback;  
+   enum type itemType;          
+   int value;            
+   int ip[4];                        
+   char* callback;  
 };
 
 
@@ -73,9 +69,9 @@ const int totalMenuItems = MENU_ELEMENTS - 1;
 int selectedMenuItem = 0;
 
 MenuItem menu[MENU_ELEMENTS] {                     
-/*  0   */    {"Select Channel",       CHANNEL_SELECTOR,    0,  1,  0,   0, 0, 1, 32,  "selectChannel"},
-/*  2   */    {"Set Local IP",             IP_EDIT,       1,  10,  0,  1, 2, 1, 254,   "setLocalIp"},
-/*  3   */    {"Set Mixer IP",             IP_EDIT,       1,  10,  0,  1, 1, 1, 254,   "setMixerIp"},
+/*  0   */    {"Select Channel",       CHANNEL_SELECTOR,   0,  {0,0,0,0},    "selectChannel"},
+/*  1   */    {"Set Local IP",             IP_EDITOR,      0,  {10,0,1,2},   "setLocalIp"},
+/*  2   */    {"Set Mixer IP",             IP_EDITOR,      0,  {10,0,1,1},   "setMixerIp"},
 };
 
 void C_selectChannel(MenuItem);
@@ -85,16 +81,22 @@ void C_setMixerIp(MenuItem);
 void (* callback_[])(MenuItem) = { &C_selectChannel, &C_setLocalIp, &C_setMixerIp };
 
 byte mac[] = {  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
+
+
 IPAddress localIp   (10, 0, 1, 2);
 IPAddress mixerIp   (10, 0, 1, 1);
+int octet = 0;
+
 bool ethUp = false;
 bool linkUp = false;
+
+int timeoutCount = 0;
 
 const unsigned int localPort = 10023;
 const unsigned int mixerPort = 10023;
 
 unsigned long lastTime_home = 0UL;
-unsigned long timerDelay_home = 500UL;
+unsigned long timerDelay_home = 600UL;
 
 unsigned long lastTime_xremote = 0UL;
 unsigned long timerDelay_xremote = 5000UL;
@@ -103,11 +105,11 @@ int batchNumber = 0;
 
 OSCErrorCode error;
 
-byte meter0[] = {B00000,B00000,B00000,B00000,B00000,B00000,B11111,B11111};
-byte meter1[] = {B00000,B00000,B00000,B00000,B11111,B11111,B11111,B11111};
-byte meter2[] = {B00000,B00000,B11111,B11111,B11111,B11111,B11111,B11111};
-byte meter3[] = {B11111,B11111,B11111,B11111,B11111,B11111,B11111,B11111};
-byte meterClip[] = {B11111,B11111,B11111,B11111,B11111,B00000,B11111,B11111};
+byte meter0[]     = {B00000,B00000,B00000,B00000,B00000,B00000,B11111,B11111};
+byte meter1[]     = {B00000,B00000,B00000,B00000,B11111,B11111,B11111,B11111};
+byte meter2[]     = {B00000,B00000,B11111,B11111,B11111,B11111,B11111,B11111};
+byte meter3[]     = {B11111,B11111,B11111,B11111,B11111,B11111,B11111,B11111};
+byte meterClip[]  = {B11111,B11111,B11111,B11111,B11111,B00000,B11111,B11111};
 
 //Channel Struct
 struct Channel{
@@ -121,80 +123,79 @@ struct Channel{
 #define TOTAL_CHANNELS 71
 
 const int totalChannels = TOTAL_CHANNELS - 1;
-int selectedChannel = 1;
+int selectedChannel = 0;
 
 Channel x32Channel[TOTAL_CHANNELS] {                     
-/*  0   */    {"", "", 0},
-/*  1   */    {"Ch01", "/ch/", 1},
-/*  2   */    {"Ch02", "/ch/", 2},
-/*  3   */    {"Ch03", "/ch/", 3},
-/*  4   */    {"Ch04", "/ch/", 4},
-/*  5   */    {"Ch05", "/ch/", 5},
-/*  6   */    {"Ch06", "/ch/", 6},
-/*  7   */    {"Ch07", "/ch/", 7},
-/*  8   */    {"Ch08", "/ch/", 8},
-/*  9   */    {"Ch09", "/ch/", 9},
-/*  10  */    {"Ch10", "/ch/", 10},
-/*  11  */    {"Ch11", "/ch/", 11},
-/*  12  */    {"Ch12", "/ch/", 12},
-/*  13  */    {"Ch13", "/ch/", 13},
-/*  14  */    {"Ch14", "/ch/", 14},
-/*  15  */    {"Ch15", "/ch/", 15},
-/*  16  */    {"Ch16", "/ch/", 16},
-/*  17  */    {"Ch17", "/ch/", 17},
-/*  18  */    {"Ch18", "/ch/", 18},
-/*  19  */    {"Ch19", "/ch/", 19},
-/*  20  */    {"Ch20", "/ch/", 20},
-/*  21  */    {"Ch21", "/ch/", 21},
-/*  22  */    {"Ch22", "/ch/", 22},
-/*  23  */    {"Ch23", "/ch/", 23},
-/*  24  */    {"Ch24", "/ch/", 24},
-/*  25  */    {"Ch25", "/ch/", 25},
-/*  26  */    {"Ch26", "/ch/", 26},
-/*  27  */    {"Ch27", "/ch/", 27},
-/*  28  */    {"Ch28", "/ch/", 28},
-/*  29  */    {"Ch29", "/ch/", 29},
-/*  30  */    {"Ch30", "/ch/", 30},
-/*  31  */    {"Ch31", "/ch/", 31},
-/*  32  */    {"Ch32", "/ch/", 32},
-/*  33  */    {"Aux01", "/auxin/", 1},
-/*  34  */    {"Aux02", "/auxin/", 2},
-/*  35  */    {"Aux03", "/auxin/", 3},
-/*  36  */    {"Aux04", "/auxin/", 4},
-/*  37  */    {"Aux05", "/auxin/", 5},
-/*  38  */    {"Aux06", "/auxin/", 6},
-/*  39  */    {"Aux07", "/auxin/", 7},
-/*  40  */    {"Aux08", "/auxin/", 8},
-/*  41  */    {"FX01", "/fxrtn/", 1},
-/*  42  */    {"FX02", "/fxrtn/", 2},
-/*  43  */    {"FX03", "/fxrtn/", 3},
-/*  44  */    {"FX04", "/fxrtn/", 4},
-/*  45  */    {"FX05", "/fxrtn/", 5},
-/*  46  */    {"FX06", "/fxrtn/", 6},
-/*  47  */    {"FX07", "/fxrtn/", 7},
-/*  48  */    {"FX08", "/fxrtn/", 8},
-/*  49  */    {"Bus01", "/bus/", 1},
-/*  50  */    {"Bus02", "/bus/", 2},
-/*  51  */    {"Bus03", "/bus/", 3},
-/*  52  */    {"Bus04", "/bus/", 4},
-/*  53  */    {"Bus05", "/bus/", 5},
-/*  54  */    {"Bus06", "/bus/", 6},
-/*  55  */    {"Bus07", "/bus/", 7},
-/*  56  */    {"Bus08", "/bus/", 8},
-/*  57  */    {"Bus09", "/bus/", 9},
-/*  58  */    {"Bus10", "/bus/", 10},
-/*  59  */    {"Bus11", "/bus/", 11},
-/*  60  */    {"Bus12", "/bus/", 12},
-/*  61  */    {"Bus13", "/bus/", 13},
-/*  62  */    {"Bus14", "/bus/", 14},
-/*  63  */    {"Bus15", "/bus/", 15},
-/*  64  */    {"Bus16", "/bus/", 16},
-/*  65  */    {"Mtx01", "/mtx/", 1},
-/*  66  */    {"Mtx02", "/mtx/", 2},
-/*  67  */    {"Mtx03", "/mtx/", 3},
-/*  68  */    {"Mtx04", "/mtx/", 4},
-/*  69  */    {"Mtx05", "/mtx/", 5},
-/*  70  */    {"Mtx06", "/mtx/", 6},
+/*  0   */    {"Ch01", "/ch/", 1},
+/*  1   */    {"Ch02", "/ch/", 2},
+/*  2   */    {"Ch03", "/ch/", 3},
+/*  3   */    {"Ch04", "/ch/", 4},
+/*  4   */    {"Ch05", "/ch/", 5},
+/*  5   */    {"Ch06", "/ch/", 6},
+/*  6   */    {"Ch07", "/ch/", 7},
+/*  7   */    {"Ch08", "/ch/", 8},
+/*  8   */    {"Ch09", "/ch/", 9},
+/*  9   */    {"Ch10", "/ch/", 10},
+/*  10  */    {"Ch11", "/ch/", 11},
+/*  11  */    {"Ch12", "/ch/", 12},
+/*  12  */    {"Ch13", "/ch/", 13},
+/*  13  */    {"Ch14", "/ch/", 14},
+/*  14  */    {"Ch15", "/ch/", 15},
+/*  15  */    {"Ch16", "/ch/", 16},
+/*  16  */    {"Ch17", "/ch/", 17},
+/*  17  */    {"Ch18", "/ch/", 18},
+/*  18  */    {"Ch19", "/ch/", 19},
+/*  19  */    {"Ch20", "/ch/", 20},
+/*  20  */    {"Ch21", "/ch/", 21},
+/*  21  */    {"Ch22", "/ch/", 22},
+/*  22  */    {"Ch23", "/ch/", 23},
+/*  23  */    {"Ch24", "/ch/", 24},
+/*  24  */    {"Ch25", "/ch/", 25},
+/*  25  */    {"Ch26", "/ch/", 26},
+/*  26  */    {"Ch27", "/ch/", 27},
+/*  27  */    {"Ch28", "/ch/", 28},
+/*  28  */    {"Ch29", "/ch/", 29},
+/*  29  */    {"Ch30", "/ch/", 30},
+/*  30  */    {"Ch31", "/ch/", 31},
+/*  31  */    {"Ch32", "/ch/", 32},
+/*  32  */    {"Aux01", "/auxin/", 1},
+/*  33  */    {"Aux02", "/auxin/", 2},
+/*  34  */    {"Aux03", "/auxin/", 3},
+/*  35  */    {"Aux04", "/auxin/", 4},
+/*  36  */    {"Aux05", "/auxin/", 5},
+/*  37  */    {"Aux06", "/auxin/", 6},
+/*  38  */    {"Aux07", "/auxin/", 7},
+/*  39  */    {"Aux08", "/auxin/", 8},
+/*  40  */    {"FX01", "/fxrtn/", 1},
+/*  41  */    {"FX02", "/fxrtn/", 2},
+/*  42  */    {"FX03", "/fxrtn/", 3},
+/*  43  */    {"FX04", "/fxrtn/", 4},
+/*  44  */    {"FX05", "/fxrtn/", 5},
+/*  45  */    {"FX06", "/fxrtn/", 6},
+/*  46  */    {"FX07", "/fxrtn/", 7},
+/*  47  */    {"FX08", "/fxrtn/", 8},
+/*  48  */    {"Bus01", "/bus/", 1},
+/*  49  */    {"Bus02", "/bus/", 2},
+/*  50  */    {"Bus03", "/bus/", 3},
+/*  51  */    {"Bus04", "/bus/", 4},
+/*  52  */    {"Bus05", "/bus/", 5},
+/*  53  */    {"Bus06", "/bus/", 6},
+/*  54  */    {"Bus07", "/bus/", 7},
+/*  55  */    {"Bus08", "/bus/", 8},
+/*  56  */    {"Bus09", "/bus/", 9},
+/*  57  */    {"Bus10", "/bus/", 10},
+/*  58  */    {"Bus11", "/bus/", 11},
+/*  59  */    {"Bus12", "/bus/", 12},
+/*  60  */    {"Bus13", "/bus/", 13},
+/*  61  */    {"Bus14", "/bus/", 14},
+/*  62  */    {"Bus15", "/bus/", 15},
+/*  63  */    {"Bus16", "/bus/", 16},
+/*  64  */    {"Mtx01", "/mtx/", 1},
+/*  65  */    {"Mtx02", "/mtx/", 2},
+/*  66  */    {"Mtx03", "/mtx/", 3},
+/*  67  */    {"Mtx04", "/mtx/", 4},
+/*  68  */    {"Mtx05", "/mtx/", 5},
+/*  69  */    {"Mtx06", "/mtx/", 6},
 };
 
 void setup() {
@@ -328,7 +329,7 @@ void showDirection(ESPRotary& r) {
    
     if (direction == "right") {
       selectedChannel--;
-      if (selectedChannel < 1) {selectedChannel = 1;}
+      if (selectedChannel < 0) {selectedChannel = 0;}
       displayChannelSelectMenu(selectedChannel, direction);
     }
     
@@ -336,6 +337,22 @@ void showDirection(ESPRotary& r) {
       selectedChannel++;
       if (selectedChannel > totalChannels) {selectedChannel = totalChannels;}
       displayChannelSelectMenu(selectedChannel, direction);
+    }
+  
+  }
+
+  else if (actualState == IP_EDIT_MENU) {
+
+    if (direction == "right") {
+      menu[selectedMenuItem].ip[octet]--;
+      if (menu[selectedMenuItem].ip[octet] < 0) {menu[selectedMenuItem].ip[octet] = 0;}
+      displayIpEditMenu();
+    }
+    
+    if (direction == "left") {
+      menu[selectedMenuItem].ip[octet]++;
+      if (menu[selectedMenuItem].ip[octet] > 254) {menu[selectedMenuItem].ip[octet] = 254;}
+      displayIpEditMenu();
     }
   
   }
@@ -356,8 +373,13 @@ void click(Button2& btn) {
       case CHANNEL_SELECTOR:
         actualState = CHANNEL_SELECT_MENU;
         displayChannelSelectMenu(selectedChannel, "right");
-
       break;
+
+      case IP_EDITOR:
+        actualState = IP_EDIT_MENU;
+        displayIpEditMenu();
+      break;
+
     }
   }
   
@@ -366,6 +388,19 @@ void click(Button2& btn) {
     actualState = HOME;
     batchNumber = 0;
     lcd.clear();
+  }
+
+  else if (actualState == IP_EDIT_MENU) {
+    if (octet < 3) {
+      octet++;
+      displayIpEditMenu();
+    }
+    else {
+      callback_[selectedMenuItem](menu[selectedMenuItem]);
+      actualState = HOME;
+      batchNumber = 0;
+      lcd.clear();
+    }
   }
 
 }
@@ -423,15 +458,17 @@ void get_meters() {
   OSCMessage msg("/meters");
   msg.add("/meters/6");
   //msg.add(48);
-  msg.add(selectedChannel-1);
+  msg.add(selectedChannel);
   msg.add(0);
   msg.add(10);
   msg.send(Serial);
-  Serial.println(" ");
+
   Udp.beginPacket(mixerIp, mixerPort);
   msg.send(Udp);
   Udp.endPacket();
   msg.empty();
+
+  timeoutCount++;
 }
 
 void get_initial_data(int num) {
@@ -483,25 +520,18 @@ void info(OSCMessage &msg) {
 }
 
 void channelMeter(OSCMessage &msg) {
+  
+  timeoutCount = 0;
+
   byte blobBuffer[5];
   msg.getBlob(0, blobBuffer);
   //Serial.println(((float *)blobBuffer)[4]);
   float meter = ((float *)blobBuffer)[1];
   
   if (actualState == HOME) {
-    //lcd.setCursor(12, 0);
-    //lcd.print(meter);
     echoMeter(meter);
   }
 
-  //Serial.print(" ");
-  //Serial.print(float(blobBuffer[4]));
-  //Serial.print(" ");
-  //Serial.println(float(blobBuffer[5]));
-  //Serial.print(" ");
-  //Serial.print(blobBuffer[3]);
-  //Serial.print(" ");
-  //Serial.println(blobBuffer[4]);
 }
 
 void inputOutputChannel(OSCMessage &msg, int addrOffset) {
@@ -544,10 +574,7 @@ void inputOutputChannel(OSCMessage &msg, int addrOffset) {
       char name[10];
       msg.getString(0, name);
       if (actualState == HOME) {
-        //lcd.setCursor(sizeof(x32Channel[selectedChannel].name)+1, 0);
-        //lcd.print("         ");
-        //lcd.setCursor(sizeof(x32Channel[selectedChannel].name)+1, 0);
-        //lcd.print(name);
+
         printRightString("         ", 13, 0);
         printRightString(String(name), 13, 0);
 
@@ -597,6 +624,7 @@ void printRightString(String header, int rightestChar, int line) {
 }
 
 void connectMixer() {
+  linkUp = true;
   //Ethernet init
   Serial.println("Initialising Ethernet: "); 
   Ethernet.begin(mac, localIp);
@@ -604,7 +632,6 @@ void connectMixer() {
   // print local IP address:
   Serial.println(Ethernet.localIP());
   Udp.begin(mixerPort);
-  linkUp = true;
   batchNumber = 0;
 
 }
@@ -619,13 +646,20 @@ void homeRoutine() {
   else if (ethUp) {
 
     if (linkUp) {
-      if (batchNumber < 3) { get_initial_data(batchNumber); }
+      if (timeoutCount >= 2) { 
+        lcd.clear();
+        //linkUp = false;
+        printCenterString("No connection!", 0);
+        batchNumber = 0;
+      }
+      else if (batchNumber < 3) { 
+        get_initial_data(batchNumber); 
+      }
       get_meters();
     }
 
     else if (!linkUp) {
       connectMixer();
-      lcd.clear();
     }
 
   }
@@ -642,6 +676,20 @@ void displayChannelSelectMenu(int selectedChannel, String direction) {
   lcd.clear();
   printCenterString("<Select Channel>", 0);
   printCenterString(x32Channel[selectedChannel].name, 1);
+}
+
+void displayIpEditMenu(void) {
+  lcd.clear();
+  printCenterString(menu[selectedMenuItem].name, 0);
+  
+  String ipString;
+  for (int i = 0; i < 4; i++) {
+    if (i == octet) { ipString = ipString + "<"; }
+    ipString = ipString + String(menu[selectedMenuItem].ip[i]);
+    if (i == octet) { ipString = ipString + ">"; }
+    if (i < 3) { ipString = ipString + "."; }
+  }
+  printCenterString(ipString, 1);
 }
 
 
@@ -704,10 +752,10 @@ String faderValueToDb(float value) {
 }
 
 void clearMeter() {
-  lcd.setCursor(15,0);
-  lcd.print(" ");
-  lcd.setCursor(15,1);
-  lcd.print(" ");
+  lcd.setCursor(14,0);
+  lcd.print("  ");
+  lcd.setCursor(14,1);
+  lcd.print("  ");
 }
 
 void echoMeter(float value) {
@@ -758,11 +806,23 @@ void C_selectChannel(MenuItem item) {
 }
 
 void C_setLocalIp(MenuItem item) {
+  octet = 0;
+  for (int i = 0; i < 4; i++) {
+    localIp[i] = item.ip[i];
+  }
+  linkUp = false;
   lcd.clear();
+  printCenterString("Local Ip Set", 0);
   delay(1500);
 }
 
 void C_setMixerIp(MenuItem item) {
+  octet = 0;
+  for (int i = 0; i < 4; i++) {
+    mixerIp[i] = item.ip[i];
+  }
+  linkUp = false;
   lcd.clear();
+  printCenterString("Mixer Ip Set", 0);
   delay(1500);
 }
