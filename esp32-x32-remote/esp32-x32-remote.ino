@@ -40,6 +40,7 @@ enum state {
   SUB_MENU,
   CHANNEL_SELECT_MENU,
   IP_EDIT_MENU,
+  LOCK_MENU
 };
 
 enum state actualState = HOME;
@@ -50,7 +51,8 @@ enum type {
   ON_OFF,
   VALUE_EDIT,
   IP_EDITOR,
-  CHANNEL_SELECTOR
+  CHANNEL_SELECTOR,
+  PIN_EDITOR
 };
 
 
@@ -64,7 +66,7 @@ struct MenuItem{
 };
 
 
-#define MENU_ELEMENTS 3
+#define MENU_ELEMENTS 4
 const int totalMenuItems = MENU_ELEMENTS - 1;
 int selectedMenuItem = 0;
 
@@ -72,13 +74,15 @@ MenuItem menu[MENU_ELEMENTS] {
 /*  0   */    {"Select Channel",       CHANNEL_SELECTOR,   0,  {0,0,0,0},    "selectChannel"},
 /*  1   */    {"Set Local IP",             IP_EDITOR,      0,  {10,0,1,2},   "setLocalIp"},
 /*  2   */    {"Set Mixer IP",             IP_EDITOR,      0,  {10,0,1,1},   "setMixerIp"},
+/*  3   */    {"Lock",                     PIN_EDITOR,     0,  {0,0,0,0},     "lock"},
 };
 
 void C_selectChannel(MenuItem);
 void C_setLocalIp(MenuItem);
 void C_setMixerIp(MenuItem);
+void C_lock(MenuItem);
 
-void (* callback_[])(MenuItem) = { &C_selectChannel, &C_setLocalIp, &C_setMixerIp };
+void (* callback_[])(MenuItem) = { &C_selectChannel, &C_setLocalIp, &C_setMixerIp, &C_lock };
 
 byte mac[] = {  0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xED };
 
@@ -109,7 +113,7 @@ byte meter0[]     = {B00000,B00000,B00000,B00000,B00000,B00000,B11111,B11111};
 byte meter1[]     = {B00000,B00000,B00000,B00000,B11111,B11111,B11111,B11111};
 byte meter2[]     = {B00000,B00000,B11111,B11111,B11111,B11111,B11111,B11111};
 byte meter3[]     = {B11111,B11111,B11111,B11111,B11111,B11111,B11111,B11111};
-byte meterClip[]  = {B11111,B11111,B11111,B11111,B11111,B00000,B11111,B11111};
+byte meterClip[]  = {B00000,B00110,B01000,B01000,B00110,B00000,B11111,B11111};
 
 //Channel Struct
 struct Channel{
@@ -120,7 +124,7 @@ struct Channel{
    int on;
 };
 
-#define TOTAL_CHANNELS 71
+#define TOTAL_CHANNELS 72
 
 const int totalChannels = TOTAL_CHANNELS - 1;
 int selectedChannel = 0;
@@ -196,7 +200,13 @@ Channel x32Channel[TOTAL_CHANNELS] {
 /*  67  */    {"Mtx04", "/mtx/", 4},
 /*  68  */    {"Mtx05", "/mtx/", 5},
 /*  69  */    {"Mtx06", "/mtx/", 6},
+/*  70  */    {"Main",  "/main/st", 99},
+/*  71  */    {"Mono",  "/main/m", 99},
 };
+
+short pin[4] = {0,0,0,0};
+short currentPinDigit = 0;
+bool isLocked = false;
 
 void setup() {
 
@@ -263,6 +273,8 @@ void loop() {
   if ((millis() - lastTime_xremote) > timerDelay_xremote) {
     if (actualState == HOME) {
       get_xremote();
+      get_meters();
+      //Serial.println("get meters");
     }
     lastTime_xremote = millis();
   }
@@ -329,13 +341,13 @@ void showDirection(ESPRotary& r) {
    
     if (direction == "right") {
       selectedChannel--;
-      if (selectedChannel < 0) {selectedChannel = 0;}
+      if (selectedChannel < 0) {selectedChannel = totalChannels;}
       displayChannelSelectMenu(selectedChannel, direction);
     }
     
     if (direction == "left") {
       selectedChannel++;
-      if (selectedChannel > totalChannels) {selectedChannel = totalChannels;}
+      if (selectedChannel > totalChannels) {selectedChannel = 0;}
       displayChannelSelectMenu(selectedChannel, direction);
     }
   
@@ -356,6 +368,23 @@ void showDirection(ESPRotary& r) {
     }
   
   }
+
+  else if (actualState == LOCK_MENU) {
+
+    if (direction == "right") {
+      pin[currentPinDigit]--;
+      if (pin[currentPinDigit] < 0) {pin[currentPinDigit] = 0;}
+      displayLockMenu();
+    }
+    
+    if (direction == "left") {
+      pin[currentPinDigit]++;
+      if (pin[currentPinDigit] > 9) {pin[currentPinDigit] = 9;}
+      displayLockMenu();
+    }
+  
+  }
+
 }
 
 // single click
@@ -367,9 +396,11 @@ void click(Button2& btn) {
     actualState = MAIN_MENU;
     displayMainMenu(selectedMenuItem, "right");
   }
+
   //Open channel selector in menu if item type is channel selector
   else if (actualState == MAIN_MENU) {
     switch (menu[selectedMenuItem].itemType) {
+      
       case CHANNEL_SELECTOR:
         actualState = CHANNEL_SELECT_MENU;
         displayChannelSelectMenu(selectedChannel, "right");
@@ -378,6 +409,11 @@ void click(Button2& btn) {
       case IP_EDITOR:
         actualState = IP_EDIT_MENU;
         displayIpEditMenu();
+      break;
+
+      case PIN_EDITOR:
+        actualState = LOCK_MENU;
+        displayLockMenu();
       break;
 
     }
@@ -394,6 +430,19 @@ void click(Button2& btn) {
     if (octet < 3) {
       octet++;
       displayIpEditMenu();
+    }
+    else {
+      callback_[selectedMenuItem](menu[selectedMenuItem]);
+      actualState = HOME;
+      batchNumber = 0;
+      lcd.clear();
+    }
+  }
+  
+  else if (actualState == LOCK_MENU) {
+    if (currentPinDigit < 3) {
+      currentPinDigit++;
+      displayLockMenu();
     }
     else {
       callback_[selectedMenuItem](menu[selectedMenuItem]);
@@ -456,11 +505,22 @@ void get_xremote() {
 
 void get_meters() {
   OSCMessage msg("/meters");
-  msg.add("/meters/6");
-  //msg.add(48);
-  msg.add(selectedChannel);
-  msg.add(0);
-  msg.add(10);
+  
+  //Main LR
+  if (selectedChannel == 70) { 
+    msg.add("/meters/5");
+    msg.add(3);
+    msg.add(3);
+    msg.add(10);
+  }
+  //All other channels
+  else {
+    msg.add("/meters/6");
+    msg.add(selectedChannel);
+    msg.add(0);
+    msg.add(10);
+  }
+
   msg.send(Serial);
 
   Udp.beginPacket(mixerIp, mixerPort);
@@ -523,13 +583,28 @@ void channelMeter(OSCMessage &msg) {
   
   timeoutCount = 0;
 
-  byte blobBuffer[5];
-  msg.getBlob(0, blobBuffer);
-  //Serial.println(((float *)blobBuffer)[4]);
-  float meter = ((float *)blobBuffer)[1];
+  float meter1;
+  float meter2;
+
+  if (selectedChannel == 70) {
+    byte blobBuffer[133];
+    msg.getBlob(0, blobBuffer);
+
+    meter1 = ((float *)blobBuffer)[25];
+    meter2 = ((float *)blobBuffer)[26];
+    //Serial.println(meter1);
+    //Serial.println(meter2);
+  }
+  else {
+    byte blobBuffer[5];
+    msg.getBlob(0, blobBuffer);
+    meter1 = 0;
+    meter2 = ((float *)blobBuffer)[1];
+  }
   
   if (actualState == HOME) {
-    echoMeter(meter);
+    echoMeter(meter1, 0);
+    echoMeter(meter2, 1);
   }
 
 }
@@ -602,6 +677,7 @@ void OSCMsgReceive() {
       msg.route("/mtx", inputOutputChannel);
       msg.route("/main", inputOutputChannel);
       msg.dispatch("/meters/6", channelMeter);
+      msg.dispatch("/meters/5", channelMeter);
 
     } else {
       int error = msg.getError();
@@ -655,7 +731,7 @@ void homeRoutine() {
       else if (batchNumber < 3) { 
         get_initial_data(batchNumber); 
       }
-      get_meters();
+      //get_meters();
     }
 
     else if (!linkUp) {
@@ -692,6 +768,18 @@ void displayIpEditMenu(void) {
   printCenterString(ipString, 1);
 }
 
+void displayLockMenu(void) {
+  lcd.clear();
+  printCenterString("Choose PIN",0);
+  //6
+  for (int i = 0; i < 4; i++) {
+    lcd.setCursor(6+i,1);
+    lcd.print(pin[i]);
+  }
+  lcd.setCursor(6+currentPinDigit,1);
+  lcd.cursor();
+}
+
 
 char * composeOscCommand (char prefix[], char suffix[], int channel_number) {
   
@@ -706,7 +794,7 @@ char * composeOscCommand (char prefix[], char suffix[], int channel_number) {
   temp_str.toCharArray(channel, 3);
 
   strcpy (buff, prefix);
-  strcat (buff, channel);
+  if (channel_number != 99) { strcat (buff, channel); }
   strcat (buff, suffix);
 
   return buff;
@@ -751,50 +839,50 @@ String faderValueToDb(float value) {
 
 }
 
-void clearMeter() {
-  lcd.setCursor(14,0);
-  lcd.print("  ");
-  lcd.setCursor(14,1);
-  lcd.print("  ");
+void clearMeter(int pos) {
+  lcd.setCursor(14+pos,0);
+  lcd.print(" ");
+  lcd.setCursor(14+pos,1);
+  lcd.print(" ");
 }
 
-void echoMeter(float value) {
+void echoMeter(float value, int pos) {
   if (value >= 0.002 && value < 0.03) {
-    clearMeter();
-    lcd.setCursor(15,1);
+    clearMeter(pos);
+    lcd.setCursor(14+pos,1);
     lcd.write(0);
   }
   else if (value >= 0.03 && value < 0.13) {
-    clearMeter();
-    lcd.setCursor(15,1);
+    clearMeter(pos);
+    lcd.setCursor(14+pos,1);
     lcd.write(1);
   }
   else if (value >= 0.13 && value < 0.25) {
-    clearMeter();
-    lcd.setCursor(15,1);
+    clearMeter(pos);
+    lcd.setCursor(14+pos,1);
     lcd.write(2);
   }
   else if (value >= 0.25 && value < 0.50) {
-    clearMeter();
-    lcd.setCursor(15,1);
+    clearMeter(pos);
+    lcd.setCursor(14+pos,1);
     lcd.write(3);
   }
   else if (value >= 0.50 && value < 0.95) {
-    clearMeter();
-    lcd.setCursor(15,1);
+    clearMeter(pos);
+    lcd.setCursor(14+pos,1);
     lcd.write(3);
-    lcd.setCursor(15,0);
+    lcd.setCursor(14+pos,0);
     lcd.write(0);
   }
   else if (value >= 0.95) {
-    clearMeter();
-    lcd.setCursor(15,1);
+    clearMeter(pos);
+    lcd.setCursor(14+pos,1);
     lcd.write(3);
-    lcd.setCursor(15,0);
+    lcd.setCursor(14+pos,0);
     lcd.write(4);
   }
   else {
-    clearMeter();
+    clearMeter(pos);
   }
 }
 
@@ -824,5 +912,13 @@ void C_setMixerIp(MenuItem item) {
   linkUp = false;
   lcd.clear();
   printCenterString("Mixer Ip Set", 0);
+  delay(1500);
+}
+
+void C_lock(MenuItem item) {
+  currentPinDigit = 0;
+  lcd.clear();
+  lcd.noCursor();
+  printCenterString("Pin Set!", 0);
   delay(1500);
 }
